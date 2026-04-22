@@ -16,13 +16,17 @@ fn to_truck(arc: &Arc) -> TruckEntity {
     let cy = arc.center.y;
     let cz = arc.center.z;
     let r = arc.radius;
-    let sa = arc.start_angle.to_radians();
-    let ea = arc.end_angle.to_radians();
-    let mut end = ea;
-    if end < sa {
-        end += TAU;
-    }
-    let mid_a = sa + (end - sa) * 0.5;
+    let sa = arc.start_angle;
+    let ea = arc.end_angle;
+    // normal.z < 0 means the arc sweeps clockwise in the XY plane;
+    // place the midpoint on the CW side so the curve goes the right way.
+    let mid_a = if arc.normal.z < 0.0 {
+        let cw_span = if sa >= ea { sa - ea } else { sa - ea + TAU };
+        sa - cw_span * 0.5
+    } else {
+        let ccw_end = if ea >= sa { ea } else { ea + TAU };
+        sa + (ccw_end - sa) * 0.5
+    };
     let p_start = Point3::new(cx + r * sa.cos(), cy + r * sa.sin(), cz);
     let p_end = Point3::new(cx + r * ea.cos(), cy + r * ea.sin(), cz);
     let p_mid = Point3::new(cx + r * mid_a.cos(), cy + r * mid_a.sin(), cz);
@@ -56,8 +60,8 @@ fn grips(arc: &Arc) -> Vec<GripDef> {
         arc.center.z as f32,
     );
     let r = arc.radius as f32;
-    let sa = (arc.start_angle as f32).to_radians();
-    let ea = (arc.end_angle as f32).to_radians();
+    let sa = arc.start_angle as f32;
+    let ea = arc.end_angle as f32;
     let ma = sa + angle_span(sa, ea) * 0.5;
     vec![
         diamond_grip(0, ctr),
@@ -111,16 +115,16 @@ fn apply_grip(arc: &mut Arc, grip_id: usize, apply: GripApply) {
         (1, GripApply::Absolute(p)) => {
             let dx = p.x - arc.center.x as f32;
             let dy = p.y - arc.center.y as f32;
-            arc.start_angle = (dy as f64).atan2(dx as f64).to_degrees();
+            arc.start_angle = (dy as f64).atan2(dx as f64);
         }
         (2, GripApply::Absolute(p)) => {
             let dx = p.x - arc.center.x as f32;
             let dy = p.y - arc.center.y as f32;
-            arc.end_angle = (dy as f64).atan2(dx as f64).to_degrees();
+            arc.end_angle = (dy as f64).atan2(dx as f64);
         }
         (3, GripApply::Translate(d)) => {
-            let sa = (arc.start_angle as f32).to_radians();
-            let ea = (arc.end_angle as f32).to_radians();
+            let sa = arc.start_angle as f32;
+            let ea = arc.end_angle as f32;
             let span = angle_span(sa, ea);
             let mid_a = sa + span * 0.5;
             let current_mid_x = arc.center.x as f32 + arc.radius as f32 * mid_a.cos();
@@ -148,10 +152,10 @@ fn apply_transform(arc: &mut Arc, t: &EntityTransform) {
         );
         let dx = (p2.x - p1.x) as f64;
         let dy = (p2.y - p1.y) as f64;
-        let line_angle_deg = dy.atan2(dx).to_degrees();
+        let line_angle = dy.atan2(dx);
         let tmp = entity.start_angle;
-        entity.start_angle = 2.0 * line_angle_deg - entity.end_angle;
-        entity.end_angle = 2.0 * line_angle_deg - tmp;
+        entity.start_angle = 2.0 * line_angle - entity.end_angle;
+        entity.end_angle = 2.0 * line_angle - tmp;
     });
 }
 

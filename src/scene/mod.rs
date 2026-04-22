@@ -518,11 +518,13 @@ impl Scene {
         }
 
         if let EntityType::Insert(ins) = e {
+            let is_mirrored = ins.x_scale() * ins.y_scale() < 0.0;
             return ins
                 .explode_from_document(&self.document)
                 .iter()
                 .cloned()
                 .map(crate::modules::home::modify::explode::normalize_insert_entity)
+                .map(|sub| crate::modules::home::modify::explode::fix_mirrored_arc(sub, is_mirrored))
                 .flat_map(|sub| {
                     let (sub_color, sub_pattern_length, sub_pattern, sub_line_weight_px, sub_aci) =
                         self.render_style(&sub);
