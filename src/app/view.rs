@@ -232,9 +232,8 @@ impl H7CAD {
             .height(Fill);
 
         let bg_color = if is_paper {
-            tab.paper_bg_color
-                .map(|[r, g, b, a]| Color { r, g, b, a })
-                .unwrap_or(Color { r: 0.22, g: 0.24, b: 0.28, a: 1.0 })
+            // Desk color — matches the DESK constant in paper_canvas.rs.
+            Color { r: 0.22, g: 0.24, b: 0.28, a: 1.0 }
         } else {
             tab.bg_color
                 .map(|[r, g, b, a]| Color { r, g, b, a })

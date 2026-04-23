@@ -64,9 +64,21 @@ impl<'a> canvas::Program<Message> for PaperCanvas<'a> {
 
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
-        // ── Background ────────────────────────────────────────────────────────
-        let [r, g, b, a] = self.scene.paper_bg_color;
-        frame.fill_rectangle(Point::ORIGIN, bounds.size(), Color { r, g, b, a });
+        // ── Desk background (area outside the paper sheet) ────────────────────
+        const DESK: Color = Color { r: 0.22, g: 0.24, b: 0.28, a: 1.0 };
+        frame.fill_rectangle(Point::ORIGIN, bounds.size(), DESK);
+
+        // ── White paper area ──────────────────────────────────────────────────
+        if let Some(((px0, py0), (px1, py1))) = self.scene.paper_limits() {
+            let tl = to_px(px0 as f32, py1 as f32);
+            let br = to_px(px1 as f32, py0 as f32);
+            let pw = br.x - tl.x;
+            let ph = br.y - tl.y;
+            if pw > 0.0 && ph > 0.0 {
+                let [r, g, b, a] = self.scene.paper_bg_color;
+                frame.fill_rectangle(tl, iced::Size::new(pw, ph), Color { r, g, b, a });
+            }
+        }
 
         // ── Wipeout fills (rendered before wires, cover background) ──────────
         for hatch in &self.scene.paper_canvas_wipeouts() {

@@ -9,9 +9,6 @@ use iced::{mouse, Event, Rectangle};
 pub enum ViewportPaneMode {
     /// Full model space — fills whatever bounds Iced assigns.
     Model,
-    /// Paper-space entities plus model content projected through viewports.
-    /// Used for the full paper canvas (single widget, no per-viewport widgets).
-    PaperSheet,
     /// Model-space content rendered through a specific viewport's 3-D camera.
     ///
     /// NOTE: Currently unused because Iced 0.14 batches all shader `prepare()`
@@ -33,11 +30,6 @@ pub struct ViewportPane<'a> {
 impl<'a> ViewportPane<'a> {
     pub fn model(scene: &'a Scene) -> Self {
         Self { scene, mode: ViewportPaneMode::Model }
-    }
-
-    /// Paper-sheet layer: paper-space entities rendered with the paper camera.
-    pub fn paper_sheet(scene: &'a Scene) -> Self {
-        Self { scene, mode: ViewportPaneMode::PaperSheet }
     }
 
     /// One paper-space viewport: model content rendered through its own camera.
@@ -116,9 +108,6 @@ impl<'a, Msg: std::fmt::Debug + Clone> shader::Program<Msg> for ViewportPane<'a>
             ViewportPaneMode::Model => {
                 self.scene.build_primitive(state.hover_region, bounds)
             }
-            ViewportPaneMode::PaperSheet => {
-                self.scene.build_paper_sheet_primitive(state.hover_region, bounds)
-            }
             ViewportPaneMode::Paper { handle } => {
                 self.scene.build_viewport_primitive(*handle, state.hover_region, bounds)
             }
@@ -133,7 +122,7 @@ impl<'a, Msg: std::fmt::Debug + Clone> shader::Program<Msg> for ViewportPane<'a>
         cursor: mouse::Cursor,
     ) -> Option<iced::widget::Action<Msg>> {
         // ViewCube hover only makes sense in the full model-space view.
-        if matches!(self.mode, ViewportPaneMode::Model | ViewportPaneMode::PaperSheet) {
+        if matches!(self.mode, ViewportPaneMode::Model) {
             self.scene.update_viewcube_state(state, bounds, cursor);
         }
         let _ = event;
@@ -146,7 +135,7 @@ impl<'a, Msg: std::fmt::Debug + Clone> shader::Program<Msg> for ViewportPane<'a>
         _b: Rectangle,
         _c: mouse::Cursor,
     ) -> mouse::Interaction {
-        if matches!(self.mode, ViewportPaneMode::Model | ViewportPaneMode::PaperSheet) {
+        if matches!(self.mode, ViewportPaneMode::Model) {
             self.scene.viewcube_mouse_interaction(state)
         } else {
             mouse::Interaction::default()

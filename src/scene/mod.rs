@@ -95,7 +95,7 @@ impl Scene {
             images: HashMap::new(),
             active_viewport: None,
             bg_color: [0.11, 0.11, 0.11, 1.0],
-            paper_bg_color: [0.22, 0.24, 0.28, 1.0],
+            paper_bg_color: [1.0, 1.0, 1.0, 1.0],
         }
     }
 
@@ -201,11 +201,9 @@ impl Scene {
             if let ObjectType::Layout(l) = obj {
                 if l.name == self.current_layout {
                     let (min, max) = (l.min_limits, l.max_limits);
-                    // Guard against degenerate limits.
                     let w = (max.0 - min.0).abs();
                     let h = (max.1 - min.1).abs();
                     if w < 1e-6 || h < 1e-6 {
-                        // Default to A4 landscape (mm).
                         return Some(((0.0, 0.0), (297.0, 210.0)));
                     }
                     return Some((min, max));
@@ -213,6 +211,8 @@ impl Scene {
             }
             None
         })
+        // No Layout object found for the current layout — default to A4 landscape.
+        .or(Some(((0.0, 0.0), (297.0, 210.0))))
     }
 
     /// Scale of the first user viewport (id > 1) in the current paper layout,

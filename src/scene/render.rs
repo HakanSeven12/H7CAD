@@ -246,39 +246,6 @@ impl Scene {
         }
     }
 
-    /// Build a Primitive for the full paper canvas: paper-space entities
-    /// (title blocks, frames, borders) plus model-space content projected
-    /// through each viewport's view matrix into paper-space coordinates.
-    pub(super) fn build_paper_sheet_primitive(
-        &self,
-        hover_region: Option<usize>,
-        bounds: Rectangle,
-    ) -> Primitive {
-        let cam = self.camera.borrow();
-        self.selection.borrow_mut().vp_size = (bounds.width, bounds.height);
-
-        let layout_block = self.current_layout_block_handle();
-        let mut wires = self.paper_sheet_wires();
-        // When MSPACE is active, exclude that viewport from the CPU projection —
-        // it is rendered in 3D by the separate PaperViewportPane widget.
-        wires.extend(self.viewport_content_wires(layout_block, None, self.active_viewport));
-        if let Some(iw) = &self.interim_wire {
-            wires.push(iw.clone());
-        }
-        wires.extend(self.preview_wires.iter().cloned());
-
-        Primitive {
-            wires,
-            hatches: self.synced_hatch_models(),
-            wipeout_hatches: self.wipeout_models(),
-            images: self.images.values().cloned().collect(),
-            meshes: self.meshes.values().cloned().collect(),
-            uniforms: Uniforms::new(&cam, bounds),
-            cam_rotation: cam.view_rotation_mat(),
-            hover_region,
-            bg_color: self.paper_bg_color,
-        }
-    }
 
     /// Build a Primitive that renders model-space content through a specific
     /// paper-space viewport's camera, applying its layer-freeze list.
