@@ -52,7 +52,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload ${{ github.ref_name }} H7CAD.flatpak --clobber --repo ${{ github.repository }}
+          mv H7CAD.flatpak H7CAD-${{ github.ref_name }}-linux-x86_64.flatpak
+          gh release upload ${{ github.ref_name }} H7CAD-${{ github.ref_name }}-linux-x86_64.flatpak --clobber --repo ${{ github.repository }}
 
   build-appimage:
     runs-on: ubuntu-22.04
@@ -108,7 +109,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload ${{ github.ref_name }} H7CAD.AppImage --clobber --repo ${{ github.repository }}
+          mv H7CAD.AppImage H7CAD-${{ github.ref_name }}-linux-x86_64.AppImage
+          gh release upload ${{ github.ref_name }} H7CAD-${{ github.ref_name }}-linux-x86_64.AppImage --clobber --repo ${{ github.repository }}
 
   build-windows:
     runs-on: windows-latest
@@ -130,4 +132,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload ${{ github.ref_name }} target/release/H7CAD.exe --clobber --repo ${{ github.repository }}
+          mv target/release/H7CAD.exe H7CAD-${{ github.ref_name }}-windows-x86_64.exe
+          gh release upload ${{ github.ref_name }} H7CAD-${{ github.ref_name }}-windows-x86_64.exe --clobber --repo ${{ github.repository }}
