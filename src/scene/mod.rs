@@ -1359,9 +1359,28 @@ impl Scene {
     }
 
     fn synced_hatch_models(&self) -> Vec<HatchModel> {
+        let layout_block = self.current_layout_block_handle();
+
+        let layer_hidden = |layer: &str| {
+            self.document
+                .layers
+                .get(layer)
+                .map(|l| l.flags.off || l.flags.frozen)
+                .unwrap_or(false)
+        };
+
         let mut models: Vec<HatchModel> = self
             .hatches
             .iter()
+            .filter(|(&handle, _)| {
+                let Some(entity) = self.document.get_entity(handle) else {
+                    return true;
+                };
+                let c = entity.common();
+                !c.invisible
+                    && !layer_hidden(&c.layer)
+                    && self.belongs_to_visible_block(handle, c.owner_handle, layout_block)
+            })
             .map(|(&handle, model)| {
                 let mut m = if let Some(EntityType::Hatch(dxf)) = self.document.get_entity(handle) {
                     let mut m = model.clone();
@@ -1390,6 +1409,16 @@ impl Scene {
             let EntityType::Insert(ins) = entity else {
                 continue;
             };
+            if ins.common.invisible || layer_hidden(&ins.common.layer) {
+                continue;
+            }
+            if !self.belongs_to_visible_block(
+                ins.common.handle,
+                ins.common.owner_handle,
+                layout_block,
+            ) {
+                continue;
+            }
             let selected = self.selected.contains(&ins.common.handle);
             for sub in ins
                 .explode_from_document(&self.document)
@@ -1399,6 +1428,9 @@ impl Scene {
                 let EntityType::Hatch(dxf) = sub else {
                     continue;
                 };
+                if dxf.common.invisible || layer_hidden(&dxf.common.layer) {
+                    continue;
+                }
                 let color = self.render_style(&EntityType::Hatch(dxf.clone())).0;
                 if let Some(mut model) = Self::hatch_model_from_dxf(&dxf, color) {
                     if selected {
