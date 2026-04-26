@@ -37,11 +37,24 @@ fn to_truck(spl: &Spline) -> TruckEntity {
     let v_start = builder::vertex(p_start);
     let v_end = builder::vertex(p_end);
     let edge = Edge::new(&v_start, &v_end, Curve::BSplineCurve(bspline));
+
+    // Expose fit_points (preferred) or control_points as key_vertices so that
+    // Endpoint/Midpoint snap can reach spline construction points.
+    let snap_source = if !spl.fit_points.is_empty() {
+        &spl.fit_points
+    } else {
+        &spl.control_points
+    };
+    let key_vertices: Vec<[f32; 3]> = snap_source
+        .iter()
+        .map(|p| [p.x as f32, p.y as f32, p.z as f32])
+        .collect();
+
     TruckEntity {
         object: TruckObject::Curve(edge),
         snap_pts: vec![],
         tangent_geoms: vec![],
-        key_vertices: vec![],
+        key_vertices,
     }
 }
 

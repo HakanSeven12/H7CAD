@@ -6,6 +6,8 @@ pub struct ResolvedTextStyle {
     pub font_name: String,
     pub width_factor: f32,
     pub oblique_angle: f32,
+    pub is_backward: bool,
+    pub is_upside_down: bool,
 }
 
 pub fn resolve_text_style(style_name: &str, document: &CadDocument) -> ResolvedTextStyle {
@@ -45,6 +47,8 @@ pub fn resolve_text_style(style_name: &str, document: &CadDocument) -> ResolvedT
         font_name,
         width_factor: style.map(|s| s.width_factor as f32).unwrap_or(1.0),
         oblique_angle: style.map(|s| s.oblique_angle as f32).unwrap_or(0.0),
+        is_backward: style.map(|s| s.is_backward()).unwrap_or(false),
+        is_upside_down: style.map(|s| s.is_upside_down()).unwrap_or(false),
     }
 }
 
@@ -61,7 +65,7 @@ pub fn text_local_bounds(
 
     let font = cxf::get_font(font_name);
     let scale = height / 9.0;
-    let wf = width_factor.clamp(0.01, 100.0);
+    let wf = width_factor.abs().clamp(0.01, 100.0);
     let ob = oblique_angle.tan();
     let mut cursor_x = 0.0_f32;
     let mut min_x = f32::INFINITY;

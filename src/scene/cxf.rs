@@ -215,7 +215,12 @@ pub fn tessellate_text_ex(
 
     let font = get_font(font_name);
     let scale = height / 9.0;
-    let wf = width_factor.clamp(0.01, 100.0);
+    // Negative width_factor produces mirrored (backward) text.
+    let wf = if width_factor < 0.0 {
+        width_factor.clamp(-100.0, -0.01)
+    } else {
+        width_factor.clamp(0.01, 100.0)
+    };
     let ob = oblique_angle.tan();
     let (cos_r, sin_r) = (rotation.cos(), rotation.sin());
 

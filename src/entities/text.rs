@@ -54,12 +54,17 @@ fn to_truck(t: &Text, document: &acadrust::CadDocument) -> TruckEntity {
     );
     let resolved_style = resolve_text_style(&t.style, document);
     let font_name = resolved_style.font_name;
-    let width_factor = (if t.width_factor > 0.0 {
-        t.width_factor as f32
-    } else {
-        1.0
-    } * resolved_style.width_factor.max(0.01))
+    let base_wf = (if t.width_factor > 0.0 { t.width_factor as f32 } else { 1.0 }
+        * resolved_style.width_factor.max(0.01))
     .clamp(0.01, 100.0);
+    // is_backward mirrors text left-right via negative width factor.
+    let width_factor = if resolved_style.is_backward { -base_wf } else { base_wf };
+    // is_upside_down rotates 180° around the insertion point.
+    let rotation = if resolved_style.is_upside_down {
+        t.rotation as f32 + std::f32::consts::PI
+    } else {
+        t.rotation as f32
+    };
     let oblique_angle = t.oblique_angle as f32 + resolved_style.oblique_angle;
     let anchor = match (
         &t.horizontal_alignment,
@@ -96,7 +101,7 @@ fn to_truck(t: &Text, document: &acadrust::CadDocument) -> TruckEntity {
     } else {
         (0.0, 0.0)
     };
-    let (cos_r, sin_r) = ((t.rotation as f32).cos(), (t.rotation as f32).sin());
+    let (cos_r, sin_r) = (rotation.cos(), rotation.sin());
     let origin = [
         anchor[0] - (anchor_local_x * cos_r - anchor_local_y * sin_r),
         anchor[1] - (anchor_local_x * sin_r + anchor_local_y * cos_r),
@@ -105,7 +110,7 @@ fn to_truck(t: &Text, document: &acadrust::CadDocument) -> TruckEntity {
     let strokes_2d = cxf::tessellate_text_ex(
         origin,
         t.height as f32,
-        t.rotation as f32,
+        rotation,
         width_factor,
         oblique_angle,
         &font_name,
