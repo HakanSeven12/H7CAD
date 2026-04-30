@@ -161,7 +161,9 @@ impl shader::Primitive for Primitive {
 impl Scene {
     /// Returns (entity_color, pattern_length, pattern, line_weight_px, aci).
     pub(super) fn render_style(&self, e: &EntityType) -> ([f32; 4], f32, [f32; 8], f32, u8) {
-        render_style_for(&self.document, e)
+        let (color, pl, pat, lw, aci) = render_style_for(&self.document, e);
+        let bg = if self.current_layout == "Model" { self.bg_color } else { self.paper_bg_color };
+        (adapt_to_bg(color, bg), pl, pat, lw, aci)
     }
 
 }
@@ -267,6 +269,22 @@ pub(super) fn render_style_for_block_sub(
     };
 
     (final_color, final_pat_len, final_pat, final_lw, aci)
+}
+
+/// Adapt white→black or black→white based on background luminance.
+/// White entities on light backgrounds become black, black entities on dark
+/// backgrounds become white. All other colors pass through unchanged.
+pub(super) fn adapt_to_bg(color: [f32; 4], bg: [f32; 4]) -> [f32; 4] {
+    let lum = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2];
+    let is_white = color[0] > 0.95 && color[1] > 0.95 && color[2] > 0.95;
+    let is_black = color[0] < 0.05 && color[1] < 0.05 && color[2] < 0.05;
+    if is_white && lum > 0.5 {
+        [0.0, 0.0, 0.0, color[3]]
+    } else if is_black && lum <= 0.5 {
+        [1.0, 1.0, 1.0, color[3]]
+    } else {
+        color
+    }
 }
 
 // ── Primitive builder helpers (called by ViewportPane's shader::Program impl) ──

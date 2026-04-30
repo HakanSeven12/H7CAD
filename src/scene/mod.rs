@@ -621,9 +621,10 @@ impl Scene {
         // Paper-space entities live in sheet coordinates (mm), not model-world
         // coordinates, so world_offset must not be subtracted from them.
         let woff = if self.current_layout == "Model" { self.world_offset } else { [0.0; 3] };
+        let bg = if self.current_layout == "Model" { self.bg_color } else { self.paper_bg_color };
         let mut wires: Vec<WireModel> = visible
             .into_par_iter()
-            .flat_map(|e| tessellate_entity(doc, sel, avp, woff, e))
+            .flat_map(|e| tessellate_entity(doc, sel, avp, woff, bg, e))
             .collect();
 
         // Apply draw order via the cached index (O(1) block lookup).
@@ -681,7 +682,8 @@ impl Scene {
 
     /// Full tessellation pipeline for one entity.
     fn tessellate_one(&self, e: &EntityType) -> Vec<WireModel> {
-        tessellate_entity(&self.document, &self.selected, self.active_viewport, self.world_offset, e)
+        let bg = if self.current_layout == "Model" { self.bg_color } else { self.paper_bg_color };
+        tessellate_entity(&self.document, &self.selected, self.active_viewport, self.world_offset, bg, e)
     }
 
     fn model_space_block_handle(&self) -> Handle {
@@ -2709,6 +2711,7 @@ fn tessellate_entity(
     selected: &HashSet<Handle>,
     active_viewport: Option<Handle>,
     world_offset: [f64; 3],
+    bg_color: [f32; 4],
     e: &EntityType,
 ) -> Vec<WireModel> {
     let h = e.common().handle;
@@ -2742,6 +2745,7 @@ fn tessellate_entity(
 
     let (entity_color, pattern_length, pattern, line_weight_px, aci) =
         render::render_style_for(document, e);
+    let entity_color = render::adapt_to_bg(entity_color, bg_color);
     let lt_scale = e.common().linetype_scale as f32;
     let lt_name = render::linetype_name_for(document, e);
 
@@ -2762,6 +2766,7 @@ fn tessellate_entity(
         // Resolve the INSERT's own style so ByBlock sub-entities can inherit it.
         let (ins_color, ins_pat_len, ins_pat, ins_lw_px, _) =
             render::render_style_for(document, e);
+        let ins_color = render::adapt_to_bg(ins_color, bg_color);
         return ins
             .explode_from_document(document)
             .iter()
@@ -2774,6 +2779,7 @@ fn tessellate_entity(
                         document, &sub,
                         ins_color, ins_pat_len, ins_pat, ins_lw_px,
                     );
+                let sub_color = render::adapt_to_bg(sub_color, bg_color);
                 let sub_aabb = entity_aabb(&sub, world_offset);
                 let mut wire = tessellate::tessellate(
                     document,
