@@ -147,6 +147,12 @@ pub(super) struct H7CAD {
     ps_lineweight_buf: String,
     ps_screening_buf: String,
 
+    // ── Unsaved-changes dialog ────────────────────────────────────────────
+    /// Set when the user tries to close a tab or quit while there are unsaved changes.
+    pending_close: Option<PendingClose>,
+    /// OS window for the unsaved-changes confirmation dialog.
+    unsaved_dialog_window: Option<window::Id>,
+
     // ── DimStyle Dialog ───────────────────────────────────────────────────
     /// Name of the style currently shown in the dialog.
     dimstyle_selected: String,
@@ -165,6 +171,15 @@ pub(super) struct H7CAD {
     ds_dimtol: bool,   ds_dimlim: bool,
     ds_dimtp: String,  ds_dimtm: String,
     ds_dimtdec: String, ds_dimtfac: String,
+}
+
+/// What triggered the "unsaved changes" dialog.
+#[derive(Debug, Clone)]
+pub(super) enum PendingClose {
+    /// User tried to close the tab at this index.
+    Tab(usize),
+    /// User tried to quit the application.
+    Quit,
 }
 
 /// Identifies a DimStyle field that can be edited in the dialog.
@@ -210,6 +225,15 @@ pub enum Message {
     TabSwitch(usize),
     /// Close the given tab index.
     TabClose(usize),
+    // ── Unsaved-changes confirmation dialog ───────────────────────────────
+    /// User clicked "Save" in the unsaved-changes dialog.
+    UnsavedDialogSave,
+    /// User clicked "Discard" in the unsaved-changes dialog.
+    UnsavedDialogDiscard,
+    /// User clicked "Cancel" in the unsaved-changes dialog.
+    UnsavedDialogCancel,
+    /// Save-as path picked for the unsaved-changes → save → close flow.
+    UnsavedPickedSavePath(Option<std::path::PathBuf>),
     // ─────────────────────────────────────────────────────────────────────
     CommandInput(String),
     CommandSubmit,
@@ -398,7 +422,9 @@ pub enum Message {
     AboutCopyInfo,
     /// Close the viewport right-click context menu without performing any action.
     ViewportContextMenuClose,
-    /// A window was closed by the OS (e.g. the user clicked the title-bar ✕).
+    /// The user clicked the title-bar ✕ (fires before the window closes).
+    WindowCloseRequested(window::Id),
+    /// A window was fully closed (fires after `window::close()` is called).
     OsWindowClosed(window::Id),
     /// No-op — used as a fallback when a TabEvent has no host mapping.
     Noop,
@@ -596,6 +622,8 @@ impl H7CAD {
             page_setup_offset_y: "0.0".to_string(),
             page_setup_rotation: "0".to_string(),
             page_setup_scale: "Fit".to_string(),
+            pending_close: None,
+            unsaved_dialog_window: None,
             // Plot style
             active_plot_style: None,
             // Color scheme (default: dark CAD-style)
@@ -650,6 +678,7 @@ impl H7CAD {
         let (id, open_task) = window::open(window::Settings {
             maximized: true,
             icon: window::icon::from_rgba(build_window_icon(), 32, 32).ok(),
+            exit_on_close_request: false,
             ..Default::default()
         });
         let mut s = state;
@@ -674,7 +703,8 @@ pub fn run() -> iced::Result {
             if Some(window_id) == state.plotstyle_window     { return "Plot Style Table Editor".into(); }
             if Some(window_id) == state.dimstyle_window      { return "Dimension Style Manager".into(); }
             if Some(window_id) == state.shortcuts_window     { return "Keyboard Shortcuts".into(); }
-            if Some(window_id) == state.about_window         { return "About H7CAD".into(); }
+            if Some(window_id) == state.about_window               { return "About H7CAD".into(); }
+            if Some(window_id) == state.unsaved_dialog_window     { return "Unsaved Changes".into(); }
             if let Some(tab) = state.tabs.get(state.active_tab) {
                 let dot = if tab.dirty { "● " } else { "" };
                 let name = tab.tab_display_name();

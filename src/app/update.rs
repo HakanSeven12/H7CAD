@@ -532,6 +532,10 @@ impl H7CAD {
             }
 
             Message::TabClose(idx) => {
+                if self.tabs.get(idx).map_or(false, |t| t.dirty) {
+                    self.pending_close = Some(super::PendingClose::Tab(idx));
+                    return self.open_unsaved_dialog_window();
+                }
                 if self.tabs.len() == 1 {
                     self.tab_counter += 1;
                     self.tabs[0] = super::document::DocumentTab::new_drawing(self.tab_counter);
@@ -705,9 +709,27 @@ impl H7CAD {
                 }
             }
 
+            Message::WindowCloseRequested(id) => {
+                if self.main_window == Some(id) {
+                    if self.tabs.iter().any(|t| t.dirty) {
+                        self.pending_close = Some(super::PendingClose::Quit);
+                        return self.open_unsaved_dialog_window();
+                    }
+                    return iced::exit();
+                }
+                Task::none()
+            }
+
             Message::OsWindowClosed(id) => {
                 if self.main_window == Some(id) {
+                    // Main window was explicitly closed by us — exit.
                     return iced::exit();
+                }
+                if self.unsaved_dialog_window == Some(id) {
+                    // User closed the dialog window via OS ✕ — treat as Cancel.
+                    self.unsaved_dialog_window = None;
+                    self.pending_close = None;
+                    return Task::none();
                 }
                 if self.layer_window         == Some(id) { self.layer_window         = None; }
                 if self.page_setup_window    == Some(id) { self.page_setup_window    = None; }
@@ -2664,6 +2686,163 @@ impl H7CAD {
 
             Message::Noop => Task::none(),
 
+            // ── Unsaved-changes dialog ────────────────────────────────────
+            Message::UnsavedDialogCancel => {
+                self.pending_close = None;
+                self.close_unsaved_dialog_window()
+            }
+
+            Message::UnsavedDialogDiscard => {
+                match self.pending_close.take() {
+                    Some(super::PendingClose::Tab(idx)) => {
+                        let close_win = self.close_unsaved_dialog_window();
+                        if self.tabs.len() == 1 {
+                            self.tab_counter += 1;
+                            self.tabs[0] = super::document::DocumentTab::new_drawing(self.tab_counter);
+                            self.active_tab = 0;
+                        } else {
+                            self.tabs.remove(idx);
+                            if self.active_tab >= self.tabs.len() {
+                                self.active_tab = self.tabs.len() - 1;
+                            }
+                        }
+                        return close_win;
+                    }
+                    Some(super::PendingClose::Quit) => {
+                        if let Some(idx) = self.tabs.iter().position(|t| t.dirty) {
+                            self.tabs[idx].dirty = false;
+                        }
+                        if self.tabs.iter().any(|t| t.dirty) {
+                            // More dirty tabs remain — keep window open.
+                            self.pending_close = Some(super::PendingClose::Quit);
+                        } else {
+                            let close_win = self.close_unsaved_dialog_window();
+                            return Task::batch(vec![close_win, iced::exit()]);
+                        }
+                    }
+                    None => {}
+                }
+                Task::none()
+            }
+
+            Message::UnsavedDialogSave => {
+                match self.pending_close.take() {
+                    Some(super::PendingClose::Tab(idx)) => {
+                        if let Some(path) = self.tabs[idx].current_path.clone() {
+                            match crate::io::save(&self.tabs[idx].scene.document, &path) {
+                                Ok(()) => {
+                                    self.command_line.push_output(&format!("Saved: {}", path.display()));
+                                    self.tabs[idx].dirty = false;
+                                    let close_win = self.close_unsaved_dialog_window();
+                                    let close_tab = self.update(Message::TabClose(idx));
+                                    return Task::batch(vec![close_win, close_tab]);
+                                }
+                                Err(e) => {
+                                    // Keep dialog open for retry.
+                                    self.command_line.push_error(&format!("Save failed: {e}"));
+                                    self.pending_close = Some(super::PendingClose::Tab(idx));
+                                }
+                            }
+                        } else {
+                            // No path — close dialog, show save-as, then come back.
+                            self.pending_close = Some(super::PendingClose::Tab(idx));
+                            let close_win = self.close_unsaved_dialog_window();
+                            return Task::batch(vec![
+                                close_win,
+                                Task::perform(crate::io::pick_save_path(), Message::UnsavedPickedSavePath),
+                            ]);
+                        }
+                    }
+                    Some(super::PendingClose::Quit) => {
+                        if let Some(idx) = self.tabs.iter().position(|t| t.dirty) {
+                            if let Some(path) = self.tabs[idx].current_path.clone() {
+                                match crate::io::save(&self.tabs[idx].scene.document, &path) {
+                                    Ok(()) => {
+                                        self.command_line.push_output(&format!("Saved: {}", path.display()));
+                                        self.tabs[idx].dirty = false;
+                                    }
+                                    Err(e) => {
+                                        self.command_line.push_error(&format!("Save failed: {e}"));
+                                        self.pending_close = Some(super::PendingClose::Quit);
+                                        return Task::none();
+                                    }
+                                }
+                            } else {
+                                // No path — close dialog, show save-as, then come back.
+                                self.active_tab = idx;
+                                self.pending_close = Some(super::PendingClose::Quit);
+                                let close_win = self.close_unsaved_dialog_window();
+                                return Task::batch(vec![
+                                    close_win,
+                                    Task::perform(crate::io::pick_save_path(), Message::UnsavedPickedSavePath),
+                                ]);
+                            }
+                        }
+                        if self.tabs.iter().any(|t| t.dirty) {
+                            // More dirty tabs — keep window open.
+                            self.pending_close = Some(super::PendingClose::Quit);
+                        } else {
+                            let close_win = self.close_unsaved_dialog_window();
+                            return Task::batch(vec![close_win, iced::exit()]);
+                        }
+                    }
+                    None => {}
+                }
+                Task::none()
+            }
+
+            Message::UnsavedPickedSavePath(Some(path)) => {
+                match self.pending_close.take() {
+                    Some(super::PendingClose::Tab(idx)) => {
+                        match crate::io::save(&self.tabs[idx].scene.document, &path) {
+                            Ok(()) => {
+                                self.command_line.push_output(&format!("Saved: {}", path.display()));
+                                self.tabs[idx].current_path = Some(path);
+                                self.tabs[idx].dirty = false;
+                                return self.update(Message::TabClose(idx));
+                            }
+                            Err(e) => {
+                                self.command_line.push_error(&format!("Save failed: {e}"));
+                                // Re-open dialog for retry.
+                                self.pending_close = Some(super::PendingClose::Tab(idx));
+                                return self.open_unsaved_dialog_window();
+                            }
+                        }
+                    }
+                    Some(super::PendingClose::Quit) => {
+                        let i = self.active_tab;
+                        match crate::io::save(&self.tabs[i].scene.document, &path) {
+                            Ok(()) => {
+                                self.command_line.push_output(&format!("Saved: {}", path.display()));
+                                self.tabs[i].current_path = Some(path);
+                                self.tabs[i].dirty = false;
+                                if self.tabs.iter().any(|t| t.dirty) {
+                                    self.pending_close = Some(super::PendingClose::Quit);
+                                    return self.open_unsaved_dialog_window();
+                                } else {
+                                    return iced::exit();
+                                }
+                            }
+                            Err(e) => {
+                                self.command_line.push_error(&format!("Save failed: {e}"));
+                                self.pending_close = Some(super::PendingClose::Quit);
+                                return self.open_unsaved_dialog_window();
+                            }
+                        }
+                    }
+                    None => {}
+                }
+                Task::none()
+            }
+
+            Message::UnsavedPickedSavePath(None) => {
+                // User cancelled the save-as dialog — re-open the confirmation dialog.
+                if self.pending_close.is_some() {
+                    return self.open_unsaved_dialog_window();
+                }
+                Task::none()
+            }
+
             // ── Page Setup ────────────────────────────────────────────────
             Message::PageSetupOpen => {
                 let i = self.active_tab;
@@ -3660,6 +3839,27 @@ impl H7CAD {
     }
 
     /// Populate edit buffers from the currently selected text style.
+    fn open_unsaved_dialog_window(&mut self) -> Task<Message> {
+        if let Some(id) = self.unsaved_dialog_window {
+            return window::gain_focus(id);
+        }
+        let (id, task) = window::open(window::Settings {
+            size: iced::Size::new(420.0, 155.0),
+            resizable: false,
+            ..Default::default()
+        });
+        self.unsaved_dialog_window = Some(id);
+        task.map(|_| Message::Noop)
+    }
+
+    fn close_unsaved_dialog_window(&mut self) -> Task<Message> {
+        if let Some(id) = self.unsaved_dialog_window.take() {
+            window::close(id)
+        } else {
+            Task::none()
+        }
+    }
+
     fn load_textstyle_bufs(&mut self, tab: usize) {
         let doc = &self.tabs[tab].scene.document;
         if let Some(s) = doc.text_styles.get(&self.textstyle_selected) {

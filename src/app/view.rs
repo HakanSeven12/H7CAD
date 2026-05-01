@@ -101,6 +101,20 @@ impl H7CAD {
         if Some(window_id) == self.about_window {
             return crate::ui::about::view_window();
         }
+        if Some(window_id) == self.unsaved_dialog_window {
+            let tab_name = match &self.pending_close {
+                Some(super::PendingClose::Tab(idx)) => self
+                    .tabs.get(*idx)
+                    .map(|t| t.tab_display_name())
+                    .unwrap_or_default(),
+                Some(super::PendingClose::Quit) => self
+                    .tabs.iter().find(|t| t.dirty)
+                    .map(|t| t.tab_display_name())
+                    .unwrap_or_default(),
+                None => String::new(),
+            };
+            return unsaved_changes_dialog_window(&tab_name);
+        }
 
         let i = self.active_tab;
         let tab = &self.tabs[i];
@@ -382,6 +396,9 @@ impl H7CAD {
             event::listen_with(|ev, status, win_id| {
                 use iced::event::Status;
                 match ev {
+                    iced::Event::Window(window::Event::CloseRequested) => {
+                        Some(Message::WindowCloseRequested(win_id))
+                    }
                     iced::Event::Window(window::Event::Closed) => {
                         Some(Message::OsWindowClosed(win_id))
                     }
@@ -810,5 +827,56 @@ fn layout_context_menu_overlay(name: &str) -> Element<'_, Message> {
         .padding(iced::Padding { top: 0.0, right: 0.0, bottom: 30.0, left: 8.0 });
 
     stack![catcher, positioned].into()
+}
+
+/// Content for the floating "Unsaved Changes" OS window.
+fn unsaved_changes_dialog_window(name: &str) -> Element<'static, Message> {
+    const BG:         Color = Color { r: 0.18, g: 0.18, b: 0.20, a: 1.0 };
+    const BORDER_COL: Color = Color { r: 0.38, g: 0.38, b: 0.42, a: 1.0 };
+    const TEXT_COL:   Color = Color { r: 0.90, g: 0.90, b: 0.90, a: 1.0 };
+    const BTN_SAVE:   Color = Color { r: 0.20, g: 0.46, b: 0.80, a: 1.0 };
+    const BTN_HOVER:  Color = Color { r: 0.26, g: 0.55, b: 0.92, a: 1.0 };
+    const BTN_DISC:   Color = Color { r: 0.28, g: 0.28, b: 0.30, a: 1.0 };
+    const BTN_DHOV:   Color = Color { r: 0.36, g: 0.36, b: 0.40, a: 1.0 };
+
+    let body_text = format!("Do you want to save changes to \"{}\"?", name);
+
+    let btn = |label: &'static str, msg: Message, base: Color, hov: Color| {
+        button(text(label).size(13).color(TEXT_COL))
+            .on_press(msg)
+            .style(move |_: &Theme, status| button::Style {
+                background: Some(Background::Color(match status {
+                    button::Status::Hovered | button::Status::Pressed => hov,
+                    _ => base,
+                })),
+                text_color: TEXT_COL,
+                border: Border { color: BORDER_COL, width: 1.0, radius: 4.0.into() },
+                shadow: iced::Shadow::default(),
+                snap: false,
+            })
+            .padding([6, 18])
+    };
+
+    container(
+        column![
+            text(body_text).size(13).color(TEXT_COL),
+            iced::widget::Space::new().height(20),
+            row![
+                btn("Save",    Message::UnsavedDialogSave,    BTN_SAVE, BTN_HOVER),
+                iced::widget::Space::new().width(8),
+                btn("Discard", Message::UnsavedDialogDiscard, BTN_DISC, BTN_DHOV),
+                iced::widget::Space::new().width(8),
+                btn("Cancel",  Message::UnsavedDialogCancel,  BTN_DISC, BTN_DHOV),
+            ],
+        ]
+        .spacing(0),
+    )
+    .style(move |_: &Theme| container::Style {
+        background: Some(Background::Color(BG)),
+        ..Default::default()
+    })
+    .center(Fill)
+    .padding([24, 28])
+    .into()
 }
 
