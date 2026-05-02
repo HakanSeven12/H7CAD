@@ -131,14 +131,19 @@ fn tessellate_polyline2d(pl: &Polyline2D) -> TruckEntity {
     }
 
     let elev = pl.elevation;
+    let normal = (pl.normal.x, pl.normal.y, pl.normal.z);
     let count = verts.len();
     let seg_count = if pl.is_closed() { count } else { count - 1 };
     let mut edges: Vec<Edge> = Vec::new();
     let mut tangents: Vec<TangentGeom> = Vec::new();
     let mut key_verts: Vec<[f32; 3]> = Vec::new();
 
+    let to_wcs = |x: f64, y: f64| -> (f64, f64, f64) {
+        crate::scene::transform::ocs_point_to_wcs((x, y, elev), normal)
+    };
     let to_pt = |v: &acadrust::entities::Vertex2D| -> Point3 {
-        Point3::new(v.location.x, v.location.y, elev)
+        let (wx, wy, wz) = to_wcs(v.location.x, v.location.y);
+        Point3::new(wx, wy, wz)
     };
 
     for i in 0..seg_count {
@@ -157,35 +162,39 @@ fn tessellate_polyline2d(pl: &Polyline2D) -> TruckEntity {
                 p2: [p1.x as f32, p1.y as f32, p1.z as f32],
             });
         } else {
+            let (ox0, oy0) = (v0.location.x, v0.location.y);
+            let (ox1, oy1) = (v1.location.x, v1.location.y);
             let angle = 4.0 * bulge.atan();
-            let dx = p1.x - p0.x;
-            let dy = p1.y - p0.y;
+            let dx = ox1 - ox0;
+            let dy = oy1 - oy0;
             let d = (dx * dx + dy * dy).sqrt();
             let r = (d / 2.0) / (angle / 2.0).sin().abs();
-            let mx = (p0.x + p1.x) * 0.5;
-            let my = (p0.y + p1.y) * 0.5;
+            let mx = (ox0 + ox1) * 0.5;
+            let my = (oy0 + oy1) * 0.5;
             let len = d.max(1e-12);
             let px = -dy / len;
             let py = dx / len;
             let sagitta_sign = if bulge > 0.0 { 1.0_f64 } else { -1.0_f64 };
             let h = r - (r * r - d * d / 4.0).max(0.0).sqrt();
-            let cx = mx + sagitta_sign * px * (r - h);
-            let cy = my + sagitta_sign * py * (r - h);
+            let ocx = mx + sagitta_sign * px * (r - h);
+            let ocy = my + sagitta_sign * py * (r - h);
             let mid_a = {
-                let a0 = (p0.y - cy).atan2(p0.x - cx);
-                let a1 = (p1.y - cy).atan2(p1.x - cx);
+                let a0 = (oy0 - ocy).atan2(ox0 - ocx);
+                let a1 = (oy1 - ocy).atan2(ox1 - ocx);
                 let (sa, mut ea) = if bulge > 0.0 { (a0, a1) } else { (a1, a0) };
                 if ea < sa {
                     ea += TAU;
                 }
                 sa + (ea - sa) * 0.5
             };
-            let p_mid = Point3::new(cx + r * mid_a.cos(), cy + r * mid_a.sin(), p0.z);
+            let (mid_wx, mid_wy, mid_wz) = to_wcs(ocx + r * mid_a.cos(), ocy + r * mid_a.sin());
+            let p_mid = Point3::new(mid_wx, mid_wy, mid_wz);
             let tv0 = builder::vertex(p0);
             let tv1 = builder::vertex(p1);
             edges.push(builder::circle_arc(&tv0, &tv1, p_mid));
+            let (wcx, wcy, wcz) = to_wcs(ocx, ocy);
             tangents.push(TangentGeom::Circle {
-                center: [cx as f32, cy as f32, p0.z as f32],
+                center: [wcx as f32, wcy as f32, wcz as f32],
                 radius: r as f32,
             });
         }
