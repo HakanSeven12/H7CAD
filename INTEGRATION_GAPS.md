@@ -25,13 +25,13 @@ Legend: ✅ Done · ⚠️ Partial · ❌ Not done
 | ✅ | **Spline** | `flags.closed` / `flags.periodic` | Implemented in `src/entities/spline.rs:48` |
 | ✅ | **Hatch** | `BoundaryEdge::Spline` tessellation | Implemented in `src/scene/mod.rs:1802` |
 | ✅ | **MultiLeader** | `MultiLeaderPathType::Spline` | Implemented in `src/entities/multileader.rs:76` |
-| ⚠️ | **RasterImage** | `clip_boundary` (polygonal/rectangular) | Boundary read but not applied — Wipeout does apply clip, RasterImage does not |
+| ✅ | **RasterImage** | `clip_boundary` (polygonal/rectangular) | Implemented in `src/entities/raster_image.rs` — polygonal + rectangular clip |
 
 ### Low Impact
 
 | Status | Entity | Ignored Field(s) | Effect |
 |---|---|---|---|
-| ❌ | **Arc / Circle / Line / Polyline** | `thickness` | No 3D extrusion along Z; invisible in pure 2D views |
+| ✅ | **Arc / Circle / Line / LwPolyline / Polyline2D** | `thickness` | Extrudes along WCS normal — `src/entities/{arc,circle,line,lwpolyline,polyline}.rs` |
 | ❌ | **LWPolyline** | `plinegen` flag | Linetype pattern resets at each vertex instead of continuing |
 
 ---
@@ -61,7 +61,7 @@ Legend: ✅ Done · ⚠️ Partial · ❌ Not done
 
 ## Systemic Gap — OCS→WCS Transform
 
-⚠️ **Partially done.** The DXF arbitrary-axis algorithm is implemented in `src/scene/transform.rs` (`ocs_axes`, `ocs_point_to_wcs`). Applied to:
+✅ **Done.** The DXF arbitrary-axis algorithm is implemented in `src/scene/transform.rs` (`ocs_axes`, `ocs_point_to_wcs`). Applied to:
 
 | Status | Entity | Location |
 |---|---|---|
@@ -75,8 +75,8 @@ Legend: ✅ Done · ⚠️ Partial · ❌ Not done
 | ✅ | **Polyline2D** | `src/entities/polyline.rs` — elevation + normal applied |
 | ✅ | **Polyline3D** | Vertices already in WCS per DXF spec (no OCS transform needed) |
 | ✅ | **AttributeDefinition / AttributeEntity** | OCS→WCS applied to insertion snap point — `src/entities/attribute.rs` |
-| ❌ | **Hatch** | elevation applied but normal not used for OCS→WCS in wire outline |
-| ❌ | **MLine / Leader** | no OCS transform |
+| ✅ | **Hatch** | OCS→WCS applied to all boundary edge types — `src/scene/tessellate.rs` |
+| ✅ | **MLine / Leader** | Vertices already in WCS per DXF spec; normal field unused for coord transform |
 
 **Impact:** Low for typical 2D plan files (nearly all normals are `(0,0,1)`); high for 3D DXF files with entities on non-horizontal planes.
 
@@ -123,7 +123,7 @@ Then transform each OCS point: `WCS = x*Ax + y*Ay + z*N`
 
 | Status | Gap | Effect | Location |
 |---|---|---|---|
-| ❌ | **Complex linetype text shapes** not rendered | Linetypes with embedded text elements show only geometry gaps | `src/scene/complex_lt.rs` |
+| ✅ | **Complex linetype text shapes** | `LtSeg::Text` calls `cxf::tessellate_text_ex`, `LtSeg::Shape` calls `emit_shape` — `src/scene/complex_lt.rs` |
 
 ---
 
@@ -207,13 +207,13 @@ These are fixed in our post-load `fix_dxf_dimension_rotations()` in `src/io/mod.
 
 | Status | Count |
 |---|---|
-| ✅ Done | 39 |
-| ⚠️ Partial | 2 |
+| ✅ Done | 44 |
+| ⚠️ Partial | 3 |
 | ❌ Not done | 2 |
-| **Total** | **43** |
+| **Total** | **49** |
 
 ### Remaining gaps by priority
 
-**Medium:** OCS→WCS for Hatch wire outline and MLine/Leader · Viewport GPU scissor rect (pixel-level boundary clipping)
+**Medium:** Viewport GPU scissor rect (pixel-level boundary clipping for overlapping viewports)
 
-**Low:** LWPolyline plinegen (GPU shader change needed) · Complex linetype text shapes · OLE2Frame improvement · Shape rotation
+**Low:** LWPolyline plinegen (GPU shader change needed) · OLE2Frame improvement · Shape rotation
