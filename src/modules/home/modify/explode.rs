@@ -49,14 +49,11 @@ pub fn explode_entity(entity: &EntityType, document: &CadDocument) -> Vec<Entity
         EntityType::Polyline2D(p) => explode_polyline2d(p),
         EntityType::Polyline(p) => explode_polyline(p),
         EntityType::Polyline3D(p) => explode_polyline3d(p),
-        EntityType::Insert(ins) => {
-            let is_mirrored = ins.x_scale() * ins.y_scale() < 0.0;
-            ins.explode_from_document(document)
-                .into_iter()
-                .map(normalize_insert_entity)
-                .map(|sub| fix_mirrored_arc(sub, is_mirrored))
-                .collect()
-        }
+        EntityType::Insert(ins) => ins
+            .explode_from_document(document)
+            .into_iter()
+            .map(normalize_insert_entity)
+            .collect(),
         EntityType::MLine(ml) => explode_mline(ml),
         EntityType::Dimension(dim) => explode_dimension(dim),
         _ => vec![],
@@ -171,22 +168,6 @@ pub fn normalize_insert_entity(mut entity: EntityType) -> EntityType {
 
 pub fn normalize_entity_for_block(entity: EntityType) -> EntityType {
     entity
-}
-
-/// Swap arc start/end angles when the INSERT that produced the entity was
-/// mirrored (exactly one of x_scale / y_scale is negative).  The acadrust
-/// explode recalculates endpoint positions correctly but does not reverse the
-/// sweep direction, so the arc would otherwise curve the wrong way.
-pub fn fix_mirrored_arc(entity: EntityType, is_mirrored: bool) -> EntityType {
-    if !is_mirrored {
-        return entity;
-    }
-    if let EntityType::Arc(mut arc) = entity {
-        std::mem::swap(&mut arc.start_angle, &mut arc.end_angle);
-        EntityType::Arc(arc)
-    } else {
-        entity
-    }
 }
 
 fn explode_lwpolyline(p: &LwPolyline) -> Vec<EntityType> {
