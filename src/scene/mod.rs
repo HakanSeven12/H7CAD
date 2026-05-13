@@ -3274,16 +3274,18 @@ impl Scene {
 
         let mut min = glam::Vec3::splat(f32::MAX);
         let mut max = glam::Vec3::splat(f32::MIN);
-        // Reject points beyond 10× the drawing's EXTMIN→EXTMAX half-size.
-        // These come from origin-stuck entities (y ≈ -world_offset.y after subtraction),
-        // Ray/XLine far-points with bad direction vectors, or corrupt coordinates.
+        // Reject XY points beyond 10× the drawing's EXTMIN→EXTMAX half-size.
+        // These come from origin-stuck entities (y ≈ -world_offset.y after subtraction)
+        // or Ray/XLine far-points with bad direction vectors. The gate is XY-only:
+        // Civil 3D files can legitimately carry profile geometry at huge Z (10^6+
+        // units) inside an otherwise small XY footprint, and gating on Z hides them.
         let lim = self.local_extent_max;
         for wire in &wires {
             for &[x, y, z] in &wire.points {
                 if !x.is_finite() || !y.is_finite() || !z.is_finite() {
                     continue;
                 }
-                if x.abs() > lim || y.abs() > lim || z.abs() > lim {
+                if x.abs() > lim || y.abs() > lim {
                     continue;
                 }
                 min = min.min(glam::Vec3::new(x, y, z));
