@@ -343,16 +343,23 @@ impl Scene {
             // top-level paper canvas is small enough not to need it.
             return None;
         }
+        // Until the first explicit camera move (typically `fit_all()` after
+        // file open), the camera sits at the default origin while geometry
+        // lives at large local offsets — culling against the default rect
+        // would discard everything and starve fit_all of points to fit to.
+        if self.camera_generation == 0 {
+            return None;
+        }
         let cam = self.camera.borrow();
         let aspect = self.last_render_aspect.get().max(0.01);
         let h = cam.ortho_size();
         let w = h * aspect;
-        // Generous margin: in 3D / perspective the projection actually covers
-        // more than the orthographic-equivalent rect, and pan inertia briefly
-        // moves geometry past the visible edge before camera_generation bumps.
         let margin = 1.25_f32;
-        let cx = (cam.target.x - self.world_offset[0] as f32) as f32;
-        let cy = (cam.target.y - self.world_offset[1] as f32) as f32;
+        // `cam.target` is in the same local f32 space as emitted wire points
+        // (fit_to_bounds populates it from local wire coords). No further
+        // `world_offset` subtraction is needed.
+        let cx = cam.target.x;
+        let cy = cam.target.y;
         Some([
             cx - w * margin,
             cy - h * margin,
