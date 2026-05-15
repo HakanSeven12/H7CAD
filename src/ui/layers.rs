@@ -838,22 +838,6 @@ fn color_label_aci(i: u8) -> &'static str {
     }
 }
 
-#[allow(dead_code)]
-fn color_name_to_aci(name: &str) -> u8 {
-    match name {
-        "red" => 1,
-        "yellow" => 2,
-        "green" => 3,
-        "cyan" => 4,
-        "blue" => 5,
-        "magenta" => 6,
-        "white" => 7,
-        "dark gray" => 8,
-        "gray" => 9,
-        _ => 7,
-    }
-}
-
 pub fn iced_color_from_acad(c: &AcadColor) -> Color {
     match c {
         AcadColor::Index(i) => {

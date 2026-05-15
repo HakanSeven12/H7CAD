@@ -103,19 +103,6 @@ pub fn populate_document(doc: &mut CadDocument) {
     }
 }
 
-/// Names of all linetypes that will be in the document after [`populate_document`].
-#[allow(dead_code)]
-pub fn name_list() -> Vec<String> {
-    let mut names = vec![
-        "ByLayer".to_string(),
-        "ByBlock".to_string(),
-        "Continuous".to_string(),
-    ];
-    for lt in parse(LIN_SOURCE) {
-        names.push(lt.name);
-    }
-    names
-}
 
 // ── Parser ────────────────────────────────────────────────────────────────
 

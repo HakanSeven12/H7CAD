@@ -123,13 +123,6 @@ impl WireGpu {
         g
     }
 
-    /// Creates a ghost copy with `alpha` applied on top of the wire's own alpha.
-    #[allow(dead_code)]
-    pub fn new_ghost(device: &wgpu::Device, wire: &WireModel, alpha: f32) -> Self {
-        let [r, g, b, a] = wire.color;
-        Self::build(device, wire, [r, g, b, a * alpha])
-    }
-
     /// Merge multiple WireModels into GPU buffers chunked to fit the 256 MB GPU limit.
     /// Each wire keeps its own color and pattern — they're stored per-vertex.
     /// Returns an empty Vec if the combined vertex list is empty.

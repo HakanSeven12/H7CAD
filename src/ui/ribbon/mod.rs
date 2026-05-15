@@ -180,15 +180,6 @@ impl Ribbon {
         self.open_dropdown = None;
     }
 
-    #[allow(dead_code)]
-    pub fn last_dropdown_cmd(
-        &self,
-        dropdown_id: &'static str,
-        default: &'static str,
-    ) -> &'static str {
-        self.last_cmd.get(dropdown_id).copied().unwrap_or(default)
-    }
-
     // ── View ──────────────────────────────────────────────────────────────
 
     pub fn view(

@@ -3,7 +3,6 @@
 mod audit;
 mod cui_export;
 mod cui_import;
-mod edit_aliases;
 mod find_nonpurgeable;
 mod options;
 mod overkill;

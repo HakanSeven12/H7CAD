@@ -233,27 +233,3 @@ const LABEL_OFF: Color = Color {
     a: 1.0,
 };
 
-/// The `Point` parameter is unused today; kept for future tooltip positioning.
-#[allow(dead_code)]
-pub fn snap_marker_color(snap_type: SnapType) -> Color {
-    match snap_type {
-        SnapType::Endpoint | SnapType::Midpoint => Color {
-            r: 1.0,
-            g: 0.9,
-            b: 0.1,
-            a: 1.0,
-        },
-        SnapType::Grid => Color {
-            r: 0.4,
-            g: 0.9,
-            b: 0.4,
-            a: 1.0,
-        },
-        _ => Color {
-            r: 1.0,
-            g: 0.9,
-            b: 0.1,
-            a: 1.0,
-        },
-    }
-}

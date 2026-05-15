@@ -23,15 +23,6 @@ const COMMON_SCALES: &[(&str, f32, f64)] = &[
     ("10:1", 0.1, 10.00),
 ];
 
-#[allow(dead_code)]
-pub fn anno_scale_for_label(label: &str) -> f32 {
-    COMMON_SCALES
-        .iter()
-        .find(|&&(l, _, _)| l == label)
-        .map(|&(_, a, _)| a)
-        .unwrap_or(1.0)
-}
-
 /// Full-screen overlay: transparent click-catcher + scale list panel pinned bottom-right.
 ///
 /// - `is_model`: true = model space (dispatches SetAnnotationScale), false = paper space (SetViewportScale).

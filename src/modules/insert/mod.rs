@@ -16,7 +16,6 @@ mod open_obj;
 mod pc_attach;
 mod snap_underlays;
 pub(crate) mod solid3d_cmds;
-mod underlay_frames;
 mod underlay_layers;
 pub(crate) mod wblock;
 mod xadjust;
