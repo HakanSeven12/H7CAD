@@ -277,10 +277,15 @@ pub fn click_hit_hatch(
     bounds: Rectangle,
 ) -> Option<Handle> {
     for (&handle, hatch) in hatches {
+        // boundary verts are stored as small f32 offsets from
+        // `world_origin` (f64). Reconstruct offset-rel WCS before
+        // projecting to screen.
+        let ox = hatch.world_origin[0] as f32;
+        let oy = hatch.world_origin[1] as f32;
         let screen: Vec<Point> = hatch
             .boundary
             .iter()
-            .map(|&[x, y]| world_to_screen(Vec3::new(x, y, 0.0), view_proj, bounds))
+            .map(|&[x, y]| world_to_screen(Vec3::new(x + ox, y + oy, 0.0), view_proj, bounds))
             .collect();
         if screen.len() >= 3 && point_in_polygon(cursor, &screen) {
             return Some(handle);
@@ -315,10 +320,12 @@ pub fn box_hit_hatch(
             if hatch.boundary.is_empty() {
                 return None;
             }
+            let ox = hatch.world_origin[0] as f32;
+            let oy = hatch.world_origin[1] as f32;
             let screen: Vec<Point> = hatch
                 .boundary
                 .iter()
-                .map(|&[x, y]| world_to_screen(Vec3::new(x, y, 0.0), view_proj, bounds))
+                .map(|&[x, y]| world_to_screen(Vec3::new(x + ox, y + oy, 0.0), view_proj, bounds))
                 .collect();
             let hit = if crossing {
                 screen.iter().any(|&sp| inside(sp))
@@ -352,10 +359,12 @@ pub fn poly_hit_hatch(
             if hatch.boundary.is_empty() {
                 return None;
             }
+            let ox = hatch.world_origin[0] as f32;
+            let oy = hatch.world_origin[1] as f32;
             let screen: Vec<Point> = hatch
                 .boundary
                 .iter()
-                .map(|&[x, y]| world_to_screen(Vec3::new(x, y, 0.0), view_proj, bounds))
+                .map(|&[x, y]| world_to_screen(Vec3::new(x + ox, y + oy, 0.0), view_proj, bounds))
                 .collect();
             let hit = if crossing {
                 screen.iter().any(|&sp| point_in_polygon(sp, poly))

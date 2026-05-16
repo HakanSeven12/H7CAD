@@ -39,6 +39,12 @@ struct HatchUniforms {
     grad_sin:     f32,        // 52: gradient direction sin
     grad_min:     f32,        // 56: gradient proj_min
     grad_range:   f32,        // 60: gradient proj_range
+    origin:       vec2<f32>,  // 64: hatch-local pattern origin (boundary
+    //                        //     centre). Pattern math runs against
+    //                        //     `xz - origin` so the f32 modulo doesn't
+    //                        //     catastrophically cancel when world coords
+    //                        //     are large and pattern spacing is small.
+    _pad:         vec2<f32>,  // 72: 16-byte alignment
 }
 @group(1) @binding(0) var<uniform> h: HatchUniforms;
 
@@ -81,7 +87,16 @@ struct VOut {
 
 @vertex fn vs_main(v: VIn) -> VOut {
     var o: VOut;
-    o.clip = u.view_proj * vec4<f32>(v.pos, 1.0);
+    // v.pos comes in pre-shifted to hatch-local space (CPU subtracted
+    // h.origin from the quad). Add origin back inside the view_proj
+    // multiply to land at the correct world-space clip position. The
+    // f32+f32 addition can lose sub-mm precision at very far hatches
+    // but the result feeds view_proj for screen NDC where sub-pixel
+    // jitter is invisible. The local-space `xz` we export to the
+    // fragment shader stays at full f32 precision so the in_polygon /
+    // pattern math doesn't catastrophically cancel.
+    let world = vec3<f32>(v.pos.x + h.origin.x, v.pos.y + h.origin.y, v.pos.z);
+    o.clip = u.view_proj * vec4<f32>(world, 1.0);
     o.xz   = vec2<f32>(v.pos.x, v.pos.y);
     return o;
 }
@@ -213,7 +228,12 @@ fn check_family(
         }
     }
 
-    // 4. Pattern: evaluate each line family.
+    // 4. Pattern: v.xz is already in hatch-local space (CPU pre-shifted
+    //    quad + BoundaryData by h.origin). The PAT family origin
+    //    (typically (0,0)) is treated as relative to h.origin, so
+    //    pattern phase is per-hatch rather than world-aligned — that
+    //    trade-off is the price of f32 precision at large drawing
+    //    extents.
     let cos_off = cos(h.angle_offset);
     let sin_off = sin(h.angle_offset);
     for (var i = 0u; i < f.n_families; i++) {

@@ -119,6 +119,7 @@ impl HatchCommand {
             color: [0.75, 0.75, 0.75, 0.85],
             angle_offset: 0.0,
             scale: 1.0,
+            world_origin: [0.0; 2],
             vp_scissor: None,
         }
     }
@@ -255,6 +256,7 @@ impl GradientCommand {
             color: [0.30, 0.60, 0.95, 0.80],
             angle_offset: 0.0,
             scale: 1.0,
+            world_origin: [0.0; 2],
             vp_scissor: None,
         }
     }
@@ -404,6 +406,7 @@ impl CadCommand for BoundaryCommand {
                     color: [0.45, 0.45, 0.45, 0.60],
                     angle_offset: 0.0,
                     scale: 1.0,
+                    world_origin: [0.0; 2],
                     vp_scissor: None,
                 };
                 return CmdResult::CommitHatch(model);

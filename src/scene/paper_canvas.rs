@@ -171,11 +171,14 @@ fn draw_hatch(frame: &mut canvas::Frame, hatch: &HatchModel, to_px: &impl Fn(f32
     let [r, g, b, a] = hatch.color;
     let color = Color { r, g, b, a };
 
+    // Reconstruct offset-rel WCS from stored small offsets + f64 anchor.
+    let ox = hatch.world_origin[0] as f32;
+    let oy = hatch.world_origin[1] as f32;
     let path = canvas::Path::new(|builder| {
-        let first = to_px(hatch.boundary[0][0], hatch.boundary[0][1]);
+        let first = to_px(hatch.boundary[0][0] + ox, hatch.boundary[0][1] + oy);
         builder.move_to(first);
         for &[x, y] in &hatch.boundary[1..] {
-            builder.line_to(to_px(x, y));
+            builder.line_to(to_px(x + ox, y + oy));
         }
         builder.close();
     });

@@ -220,9 +220,13 @@ impl Pipeline {
         });
 
         // ── Hatch pipeline ─────────────────────────────────────────────────
-        let hatch_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
+        // binding 0 (HatchUniforms) is read by the vertex shader too — it
+        // pulls `origin` to undo the CPU-side hatch-local pre-shift when
+        // computing clip position. bindings 1 (Boundary) and 2
+        // (FamilyBatch) stay fragment-only.
+        let hatch_entry = |binding: u32, vis: wgpu::ShaderStages| wgpu::BindGroupLayoutEntry {
             binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
+            visibility: vis,
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Uniform,
                 has_dynamic_offset: false,
@@ -230,9 +234,15 @@ impl Pipeline {
             },
             count: None,
         };
+        let frag = wgpu::ShaderStages::FRAGMENT;
+        let vert_frag = wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT;
         let hatch_bgl1 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("hatch.bgl1"),
-            entries: &[hatch_entry(0), hatch_entry(1), hatch_entry(2)],
+            entries: &[
+                hatch_entry(0, vert_frag),
+                hatch_entry(1, frag),
+                hatch_entry(2, frag),
+            ],
         });
 
         let hatch_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

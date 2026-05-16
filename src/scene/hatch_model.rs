@@ -43,8 +43,22 @@ pub enum HatchPattern {
 /// A hatched region defined by a closed polygon boundary.
 #[derive(Clone, Debug)]
 pub struct HatchModel {
-    /// World XY coordinates of the boundary polygon vertices.
-    /// Arc so HatchModel::clone() is a pointer bump rather than a full Vec copy.
+    /// World XY anchor (in the same offset-relative coordinate space as
+    /// the rest of the scene — `world_offset` already subtracted, but
+    /// kept at f64 precision). Boundary vertices are stored as f32
+    /// offsets from this anchor so that:
+    ///   1) hit-test / paper_canvas can still read small-magnitude f32
+    ///      coords without precision loss from the f64 → f32 cast that
+    ///      would otherwise happen at large drawing extents (UTM, etc.).
+    ///   2) the GPU pipeline can pre-shift the quad in hatch-local
+    ///      space (so the fragment shader's `xz` varying stays small)
+    ///      and add `world_origin` back inside the view_proj multiply.
+    /// Reconstruct WCS-relative coords as `(world_origin.x + v.x as f64,
+    /// world_origin.y + v.y as f64)`.
+    pub world_origin: [f64; 2],
+    /// World-XY coordinates of the boundary polygon vertices, stored as
+    /// f32 offsets from `world_origin`. NaN-NaN sentinels separate
+    /// disconnected paths and must be preserved un-shifted by consumers.
     pub boundary: Arc<Vec<[f32; 2]>>,
     /// Fill pattern.
     pub pattern: HatchPattern,

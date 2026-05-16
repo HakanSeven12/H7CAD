@@ -39,7 +39,7 @@ impl HatchVertex {
 
 // ── Uniform structs ───────────────────────────────────────────────────────
 
-/// Per-hatch parameters (binding 0).  Must be 64 bytes.
+/// Per-hatch parameters (binding 0).  Must be 80 bytes (16-byte aligned).
 ///
 /// `mode` encoding:
 ///   0 → Pattern  (families in FamilyBatchData)
@@ -48,17 +48,24 @@ impl HatchVertex {
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct HatchUniformData {
-    pub color: [f32; 4],   //  0: primary RGBA / gradient start
-    pub color2: [f32; 4],  // 16: gradient end color
-    pub mode: u32,         // 32: 0=pattern, 1=solid, 2=gradient
-    pub vertex_count: u32, // 36: boundary vertex count
-    pub angle_offset: f32, // 40: pattern rotation (radians)
-    pub scale: f32,        // 44: pattern scale multiplier
-    pub grad_cos: f32,     // 48: gradient direction cos
-    pub grad_sin: f32,     // 52: gradient direction sin
-    pub grad_min: f32,     // 56: gradient proj_min
-    pub grad_range: f32,   // 60: gradient proj_range
-} // total 64 bytes
+    pub color: [f32; 4],     //  0: primary RGBA / gradient start
+    pub color2: [f32; 4],    // 16: gradient end color
+    pub mode: u32,           // 32: 0=pattern, 1=solid, 2=gradient
+    pub vertex_count: u32,   // 36: boundary vertex count
+    pub angle_offset: f32,   // 40: pattern rotation (radians)
+    pub scale: f32,          // 44: pattern scale multiplier
+    pub grad_cos: f32,       // 48: gradient direction cos
+    pub grad_sin: f32,       // 52: gradient direction sin
+    pub grad_min: f32,       // 56: gradient proj_min
+    pub grad_range: f32,     // 60: gradient proj_range
+    pub origin: [f32; 2],    // 64: hatch-local origin (boundary AABB centre).
+    //                       //     The pattern fragment shader subtracts this
+    //                       //     from xz before the perp/perp_step quotient
+    //                       //     so f32 doesn't catastrophically cancel when
+    //                       //     world coords are large and pattern spacing
+    //                       //     is small (e.g. UTM drawing + sub-mm hatch).
+    pub _pad: [f32; 2],      // 72: 16-byte alignment
+} // total 80 bytes
 
 /// Boundary polygon (binding 1).  Matches WGSL `Boundary`.
 #[repr(C)]
@@ -153,7 +160,68 @@ impl HatchGpu {
         };
         let diag = ((max_x - min_x).powi(2) + (max_y - min_y).powi(2)).sqrt();
         let pad = (diag * 0.8 + max_spacing * 2.0 * model.scale).max(1.0);
-        let (x0, x1, y0, y1) = (min_x - pad, max_x + pad, min_y - pad, max_y + pad);
+        // ── Pattern phase anchor.
+        //
+        // Boundary verts are already stored as small f32 offsets from
+        // `model.world_origin` (an f64 anchor near the AABB centre), so
+        // the in_polygon ray-cast and the pattern math both run at full
+        // f32 precision in the fragment shader. The remaining question
+        // is *which* offset-rel point we hand to the vertex shader as
+        // `h.origin` (so the quad lands at the correct WCS position
+        // after `view_proj * (v.pos + h.origin)`).
+        //
+        // For pattern alignment across adjacent hatches with the same
+        // family, snap `h.origin` to the family's perp/along grid in
+        // f64. Without the snap, each hatch's pattern phase is per-hatch
+        // and stripes don't continue across hatch boundaries (you see
+        // pattern misalignment along a road etc).
+        let mut origin = model.world_origin;
+        if let HatchPattern::Pattern(families) = &model.pattern {
+            if let Some(fam) = families.first() {
+                // Must mirror the shader's pattern math exactly. QCAD PAT
+                // convention (matching build_family_batch): `dy` is the
+                // perpendicular spacing and `dx` is the along-line phase
+                // shift, both in family-local space. Multiplied by
+                // `model.scale` in the fragment shader. Combined angle
+                // (family + pattern_angle) rotates the perp/along axes.
+                let angle = (fam.angle_deg.to_radians() + model.angle_offset) as f64;
+                let cos_a = angle.cos();
+                let sin_a = angle.sin();
+                let scale = model.scale as f64;
+                let perp_step = fam.dy as f64 * scale;
+                let along_step = fam.dx as f64 * scale;
+                let o_perp = -origin[0] * sin_a + origin[1] * cos_a;
+                let o_along = origin[0] * cos_a + origin[1] * sin_a;
+                let snapped_perp = if perp_step.abs() > 1e-12 {
+                    (o_perp / perp_step).round() * perp_step
+                } else {
+                    o_perp
+                };
+                let snapped_along = if along_step.abs() > 1e-12 {
+                    (o_along / along_step).round() * along_step
+                } else {
+                    o_along
+                };
+                origin = [
+                    -snapped_perp * sin_a + snapped_along * cos_a,
+                    snapped_perp * cos_a + snapped_along * sin_a,
+                ];
+            }
+        }
+        // Boundary buffer + quad now live in "snap-shifted" hatch-local
+        // coords: subtract any drift between model.world_origin and the
+        // snapped origin so the in_polygon ray-cast in fragment shader
+        // (which reads the boundary verts straight) lines up with v.xz.
+        let drift = [
+            (model.world_origin[0] - origin[0]) as f32,
+            (model.world_origin[1] - origin[1]) as f32,
+        ];
+        let (x0, x1, y0, y1) = (
+            min_x + drift[0] - pad,
+            max_x + drift[0] + pad,
+            min_y + drift[1] - pad,
+            max_y + drift[1] + pad,
+        );
 
         let quad = [
             HatchVertex {
@@ -187,13 +255,13 @@ impl HatchGpu {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        // ── Gradient: projection range ───────────────────────────────────
+        // ── Gradient: projection range (in snapped-local space) ──────────
         let (grad_min, grad_range) = if mode == 2 {
             let projs: Vec<f32> = model
                 .boundary
                 .iter()
                 .filter(|v| v[0].is_finite() && v[1].is_finite())
-                .map(|&[x, y]| x * grad_cos + y * grad_sin)
+                .map(|&[x, y]| (x + drift[0]) * grad_cos + (y + drift[1]) * grad_sin)
                 .collect();
             if projs.is_empty() {
                 (0.0, 1.0)
@@ -219,9 +287,11 @@ impl HatchGpu {
             grad_sin,
             grad_min,
             grad_range,
+            origin: [origin[0] as f32, origin[1] as f32],
+            _pad: [0.0; 2],
         };
 
-        // ── BoundaryData ─────────────────────────────────────────────────
+        // ── BoundaryData (in snapped-local space) ────────────────────────
         let mut boundary_data = BoundaryData {
             verts: [[0.0; 4]; MAX_HATCH_BOUNDARY_VERTS],
         };
@@ -231,7 +301,13 @@ impl HatchGpu {
             .take(MAX_HATCH_BOUNDARY_VERTS)
             .enumerate()
         {
-            boundary_data.verts[i] = [x, y, 0.0, 0.0];
+            // Preserve NaN separators — they signal path breaks to the
+            // in_polygon ray-cast, must not be shifted into finite numbers.
+            if x.is_finite() && y.is_finite() {
+                boundary_data.verts[i] = [x + drift[0], y + drift[1], 0.0, 0.0];
+            } else {
+                boundary_data.verts[i] = [f32::NAN, f32::NAN, 0.0, 0.0];
+            }
         }
 
         // ── FamilyBatchData ───────────────────────────────────────────────

@@ -2307,6 +2307,7 @@ impl Scene {
                     color,
                     angle_offset: 0.0,
                     scale: 1.0,
+                    world_origin: [0.0; 2],
                     vp_scissor: None,
                 });
             }
@@ -2360,6 +2361,7 @@ impl Scene {
                     color: fill_color,
                     angle_offset: 0.0,
                     scale: 1.0,
+                    world_origin: [0.0; 2],
                     vp_scissor: None,
                 });
             }
@@ -2418,21 +2420,26 @@ impl Scene {
     ) -> Option<HatchModel> {
         let [ox, oy, _oz] = world_offset;
         let normal = (dxf.normal.x, dxf.normal.y, dxf.normal.z);
-        let to_xy = |x: f64, y: f64| -> [f32; 2] {
+        // Build the boundary in f64 first so the precision-preserving
+        // origin computation below sees full WCS precision. We only cast
+        // to f32 once at the end, after subtracting the AABB centre, so
+        // the stored offsets are small-magnitude with high f32 precision
+        // even on large UTM-scale drawings.
+        let to_xy = |x: f64, y: f64| -> [f64; 2] {
             let (wx, wy, _) =
                 crate::scene::transform::ocs_point_to_wcs((x, y, dxf.elevation), normal);
-            [(wx - ox) as f32, (wy - oy) as f32]
+            [wx - ox, wy - oy]
         };
         if dxf.paths.is_empty() {
             return None;
         }
 
-        let mut boundary: Vec<[f32; 2]> = Vec::new();
+        let mut boundary: Vec<[f64; 2]> = Vec::new();
 
         for path in &dxf.paths {
             let before_path = boundary.len();
             if !boundary.is_empty() {
-                boundary.push([f32::NAN, f32::NAN]);
+                boundary.push([f64::NAN, f64::NAN]);
             }
             let path_start = boundary.len();
 
@@ -2456,54 +2463,50 @@ impl Scene {
                             if bulge.abs() < 1e-9 {
                                 boundary.push(to_xy(v0.x, v0.y));
                             } else {
-                                let p0 = [v0.x as f32, v0.y as f32];
-                                let p1 = [v1.x as f32, v1.y as f32];
-                                let theta = 4.0 * (bulge as f32).atan();
-                                let dx = p1[0] - p0[0];
-                                let dy = p1[1] - p0[1];
+                                // Run the whole bulge → arc tessellation in
+                                // f64. The old f32 path lost ~1 cm of
+                                // precision at UTM-scale WCS coordinates
+                                // (1e5 magnitude × 1 ULP), which showed up
+                                // as visibly wavy hatch-boundary arcs.
+                                let theta = 4.0 * bulge.atan();
+                                let dx = v1.x - v0.x;
+                                let dy = v1.y - v0.y;
                                 let d = (dx * dx + dy * dy).sqrt();
-                                if d < 1e-9 {
+                                if d < 1e-12 {
                                     boundary.push(to_xy(v0.x, v0.y));
                                     continue;
                                 }
                                 let r = (d * 0.5) / (theta * 0.5).sin().abs();
-                                let mx = (p0[0] + p1[0]) * 0.5;
-                                let my = (p0[1] + p1[1]) * 0.5;
+                                let mx = (v0.x + v1.x) * 0.5;
+                                let my = (v0.y + v1.y) * 0.5;
                                 let px = -dy / d;
                                 let py = dx / d;
-                                let sign = if bulge > 0.0 { 1.0_f32 } else { -1.0_f32 };
+                                let sign = if bulge > 0.0 { 1.0_f64 } else { -1.0_f64 };
                                 let center_offset = r * (theta * 0.5).cos();
                                 let cx = mx + sign * px * center_offset;
                                 let cy = my + sign * py * center_offset;
-                                let a0 = (p0[1] - cy).atan2(p0[0] - cx);
-                                let a1 = (p1[1] - cy).atan2(p1[0] - cx);
+                                let a0 = (v0.y - cy).atan2(v0.x - cx);
+                                let a1 = (v1.y - cy).atan2(v1.x - cx);
                                 let mut sweep = a1 - a0;
+                                const TAU: f64 = std::f64::consts::TAU;
                                 if bulge > 0.0 {
                                     if sweep <= 0.0 {
-                                        sweep += std::f32::consts::TAU;
+                                        sweep += TAU;
                                     }
                                 } else if sweep >= 0.0 {
-                                    sweep -= std::f32::consts::TAU;
+                                    sweep -= TAU;
                                 }
-                                if sweep.abs() < 1e-7 {
-                                    sweep = if bulge > 0.0 {
-                                        std::f32::consts::TAU
-                                    } else {
-                                        -std::f32::consts::TAU
-                                    };
+                                if sweep.abs() < 1e-9 {
+                                    sweep = if bulge > 0.0 { TAU } else { -TAU };
                                 }
-                                let r64 = r as f64;
                                 let segs = tessellate::arc_segments(
-                                    r64,
-                                    sweep.abs() as f64,
-                                    tessellate::fill_chord_tol(r64),
+                                    r,
+                                    sweep.abs(),
+                                    tessellate::fill_chord_tol(r),
                                 );
                                 for j in 0..segs {
-                                    let a = a0 + sweep * (j as f32 / segs as f32);
-                                    boundary.push(to_xy(
-                                        (cx + r * a.cos()) as f64,
-                                        (cy + r * a.sin()) as f64,
-                                    ));
+                                    let a = a0 + sweep * (j as f64 / segs as f64);
+                                    boundary.push(to_xy(cx + r * a.cos(), cy + r * a.sin()));
                                 }
                             }
                         }
@@ -2656,13 +2659,47 @@ impl Scene {
         } else {
             dxf.pattern.name.clone()
         };
+
+        // Precision-preserving cast f64 → f32: pick an `world_origin`
+        // anchor (boundary AABB centre in f64) and store every vertex
+        // as a small f32 offset from it. NaN separators are preserved
+        // so the in_polygon ray-cast still sees the path breaks.
+        let mut min_x = f64::INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        for &[x, y] in &boundary {
+            if x.is_finite() && y.is_finite() {
+                if x < min_x { min_x = x; }
+                if y < min_y { min_y = y; }
+                if x > max_x { max_x = x; }
+                if y > max_y { max_y = y; }
+            }
+        }
+        let world_origin = if min_x.is_finite() && min_y.is_finite() {
+            [(min_x + max_x) * 0.5, (min_y + max_y) * 0.5]
+        } else {
+            [0.0, 0.0]
+        };
+        let boundary_f32: Vec<[f32; 2]> = boundary
+            .iter()
+            .map(|&[x, y]| {
+                if x.is_finite() && y.is_finite() {
+                    [(x - world_origin[0]) as f32, (y - world_origin[1]) as f32]
+                } else {
+                    [f32::NAN, f32::NAN]
+                }
+            })
+            .collect();
+
         Some(HatchModel {
-            boundary: std::sync::Arc::new(boundary),
+            boundary: std::sync::Arc::new(boundary_f32),
             pattern,
             name,
             color,
             angle_offset: dxf.pattern_angle as f32,
             scale: dxf.pattern_scale as f32,
+            world_origin,
             vp_scissor: None,
         })
     }
@@ -2812,6 +2849,7 @@ impl Scene {
             color,
             angle_offset: 0.0,
             scale: 1.0,
+            world_origin: [0.0; 2],
             vp_scissor: None,
         }
     }
@@ -2822,10 +2860,12 @@ impl Scene {
             model.pattern,
             crate::scene::hatch_model::HatchPattern::Solid
         );
+        let [wx, wy] = model.world_origin;
         let verts: Vec<Vector2> = model
             .boundary
             .iter()
-            .map(|&[x, y]| Vector2::new(x as f64, y as f64))
+            .filter(|v| v[0].is_finite() && v[1].is_finite())
+            .map(|&[x, y]| Vector2::new(x as f64 + wx, y as f64 + wy))
             .collect();
         let edge = PolylineEdge::new(verts, true);
         let mut path = BoundaryPath::external();
