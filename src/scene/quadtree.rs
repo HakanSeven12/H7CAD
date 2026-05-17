@@ -99,9 +99,14 @@ impl QuadTree {
             .push(Item { handle, aabb });
         self.locator.insert(handle, (node_idx, item_idx));
 
-        // Split if the leaf overflowed and we still have depth budget.
+        // Split only LEAF nodes. Internal nodes accumulate straddlers
+        // (items whose AABB crosses a child boundary); calling split on
+        // an internal node would overwrite its `children` pointer and
+        // orphan the entire existing subtree. Straddlers can't fit
+        // smaller children anyway, so splitting is futile here.
         if self.nodes[node_idx as usize].items.len() > LEAF_CAPACITY
             && self.nodes[node_idx as usize].depth < MAX_DEPTH
+            && self.nodes[node_idx as usize].children.is_none()
         {
             self.split(node_idx);
         }
@@ -334,6 +339,30 @@ mod tests {
         // Query that does intersect the overflow item.
         let far = t.query_rect([900.0, 900.0, 1100.0, 1100.0]);
         assert_eq!(far, vec![h(1)]);
+    }
+
+    #[test]
+    fn many_straddlers_dont_orphan_subtree() {
+        // Regression: previously, when straddlers piled up at an
+        // internal node and exceeded LEAF_CAPACITY, split() was called
+        // again — overwriting the node's `children` and orphaning every
+        // descendant. Symptom: thousands of items inserted, only ~5%
+        // reachable from root via a huge_query.
+        let mut t = QuadTree::new([0.0, 0.0, 100.0, 100.0]);
+        // First, fill one leaf so it splits.
+        for i in 0..40u64 {
+            t.insert(h(i), [1.0, 1.0, 2.0, 2.0]);
+        }
+        // Now flood the root with straddlers (AABBs that cross center).
+        for i in 100..200u64 {
+            t.insert(h(i), [10.0, 10.0, 90.0, 90.0]);
+        }
+        // After the regression-trigger inserts, every handle must still
+        // come back from a huge query.
+        let huge = [-1e9, -1e9, 1e9, 1e9];
+        let hits = t.query_rect(huge);
+        let expected = 40 + 100;
+        assert_eq!(hits.len(), expected, "lost items: tree.len={} hits.len={}", t.len(), hits.len());
     }
 
     #[test]
