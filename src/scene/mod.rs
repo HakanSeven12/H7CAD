@@ -2474,10 +2474,33 @@ impl Scene {
                 .unwrap_or(false)
         };
 
+        // Phase 2.1 — narrow the per-hatch visibility scan to candidates
+        // the quadtree says intersect the view. The map below still does
+        // the heavy lifting (model clone + render_style + selection tint)
+        // so cutting the pre-filter from O(N_hatches) → O(visible_hatches)
+        // is the main win.
+        let view_candidates: Option<std::collections::HashSet<Handle>> =
+            self.view_world_aabb().map(|local_view| {
+                let [ox, oy, _] = self.world_offset;
+                let view_wcs: [f64; 4] = [
+                    local_view[0] as f64 + ox,
+                    local_view[1] as f64 + oy,
+                    local_view[2] as f64 + ox,
+                    local_view[3] as f64 + oy,
+                ];
+                let tree = self.entity_index();
+                tree.query_rect(view_wcs).into_iter().collect()
+            });
+
         let mut models: Vec<HatchModel> = self
             .hatches
             .iter()
             .filter(|(&handle, _)| {
+                if let Some(set) = view_candidates.as_ref() {
+                    if !set.contains(&handle) {
+                        return false;
+                    }
+                }
                 let Some(entity) = self.document.get_entity(handle) else {
                     return true;
                 };
@@ -2562,6 +2585,11 @@ impl Scene {
             if fills.is_empty() {
                 continue;
             }
+            if let Some(set) = view_candidates.as_ref() {
+                if !set.contains(&common.handle) {
+                    continue;
+                }
+            }
             if common.invisible || layer_hidden(&common.layer) {
                 continue;
             }
@@ -2607,11 +2635,29 @@ impl Scene {
         } else {
             self.world_offset
         };
+        // Phase 2.1 — quadtree pre-filter for wipeouts in Model layout.
+        let view_candidates: Option<std::collections::HashSet<Handle>> =
+            self.view_world_aabb().map(|local_view| {
+                let [ox, oy, _] = self.world_offset;
+                let view_wcs: [f64; 4] = [
+                    local_view[0] as f64 + ox,
+                    local_view[1] as f64 + oy,
+                    local_view[2] as f64 + ox,
+                    local_view[3] as f64 + oy,
+                ];
+                let tree = self.entity_index();
+                tree.query_rect(view_wcs).into_iter().collect()
+            });
         let mut models = Vec::new();
         for entity in self.document.entities() {
             let EntityType::Wipeout(wo) = entity else {
                 continue;
             };
+            if let Some(set) = view_candidates.as_ref() {
+                if !set.contains(&wo.common.handle) {
+                    continue;
+                }
+            }
             if entity.common().invisible {
                 continue;
             }
